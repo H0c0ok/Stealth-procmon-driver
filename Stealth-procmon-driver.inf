@@ -1,0 +1,61 @@
+;
+; Stealth-procmon-driver.inf
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = "ActivityMonitor"
+ClassGuid   = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
+Provider    = %ManufacturerName%
+DriverVer   = 
+CatalogFile = Stealth-procmon-driver.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir          = 12
+MiniFilter.DriverFiles  = 12
+
+[DefaultInstall.NTamd64]
+OptionDesc          = %ServiceDescription%
+CopyFiles           = MiniFilter.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService          = %ServiceName%,,MiniFilter.Service
+
+[MiniFilter.Service]
+DisplayName      = %ServiceName%
+Description      = %ServiceDescription%
+ServiceBinary    = %12%\Stealth-procmon-driver.sys
+Dependencies     = "FltMgr"
+ServiceType      = 2 ; SERVICE_FILE_SYSTEM_DRIVER
+StartType        = 3 ; SERVICE_DEMAND_START
+ErrorControl     = 1 ; SERVICE_ERROR_NORMAL
+LoadOrderGroup   = "FSFilter Activity Monitor"
+AddReg           = MiniFilter.AddRegistry
+
+[MiniFilter.AddRegistry]
+HKR,"Parameters","DebugFlags",0x00010001 ,0x0
+HKR,"Parameters","SupportedFeatures",0x00010001,0x3
+HKR,"Parameters\Instances","DefaultInstance",0x00000000,%DefaultInstance%
+HKR,"Parameters\Instances\"%Instance1.Name%,"Altitude",0x00000000,%Instance1.Altitude%
+HKR,"Parameters\Instances\"%Instance1.Name%,"Flags",0x00010001,0x0
+
+[MiniFilter.DriverFiles]
+Stealth-procmon-driver.sys
+
+[SourceDisksFiles]
+Stealth-procmon-driver.sys = 1,,
+
+[SourceDisksNames]
+1 = %DiskId1%,,,
+
+[Strings]
+ManufacturerName        = "Me"
+ServiceDescription      = "Monitoring process activity"
+ServiceName             = "NotProcNotMon"
+DriverName              = "not-proc-not-mon-driver"
+DiskId1                 = "Stealth Device Installation Disk"
+
+DefaultInstance         = "NotProcNotMon Instance"
+Instance1.Name          = "NotProcNotMon Instance"
+Instance1.Altitude      = "38520
