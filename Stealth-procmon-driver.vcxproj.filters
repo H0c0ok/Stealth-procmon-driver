@@ -30,9 +30,18 @@
     <ClCompile Include="src\ioctlPidCommand.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\Notifications.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\ioctlPidCommand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Notifications.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SharedDefines.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

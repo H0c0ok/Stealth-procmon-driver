@@ -7,7 +7,7 @@ Signature   = "$Windows NT$"
 Class       = "ActivityMonitor"
 ClassGuid   = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
 Provider    = %ManufacturerName%
-DriverVer   = 
+DriverVer   = 02/03/2000,1.1.1.1
 CatalogFile = Stealth-procmon-driver.cat
 PnpLockdown = 1
 

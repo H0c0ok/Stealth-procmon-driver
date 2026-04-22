@@ -1,0 +1,19 @@
+#pragma once
+#include <ntifs.h>
+#include <fltkernel.h>
+
+#define MAX_TRACKED_PIDS 64
+
+extern ULONG g_TrackedPIDs[MAX_TRACKED_PIDS];
+extern WCHAR g_TargetProcessName[256];
+extern KSPIN_LOCK g_PidLock;
+
+BOOLEAN isPidTracked(ULONG Pid);
+VOID AddTrackedPid(ULONG Pid);
+VOID RemoveTrackedPid(ULONG Pid);
+
+VOID ProcessNotifyCallbackEx(PEPROCESS, HANDLE, PPS_CREATE_NOTIFY_INFO);
+VOID ThreadNotifyRoutine(HANDLE, HANDLE, BOOLEAN);
+FLT_PREOP_CALLBACK_STATUS PreFileOperation(PFLT_CALLBACK_DATA, PCFLT_RELATED_OBJECTS, PVOID*);
+FLT_POSTOP_CALLBACK_STATUS PostFileOperation(PFLT_CALLBACK_DATA, PCFLT_RELATED_OBJECTS, PVOID, FLT_POST_OPERATION_FLAGS);
+NTSTATUS RegistryCallback(PVOID, PVOID, PVOID);

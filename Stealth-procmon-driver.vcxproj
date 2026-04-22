@@ -88,6 +88,10 @@
       <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>$(DDK_LIB_PATH)\FltMgr.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <Inf>
+      <SpecifyArchitecture>true</SpecifyArchitecture>
+      <SpecifyDriverVerDirectiveDate>false</SpecifyDriverVerDirectiveDate>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DriverSign>
@@ -101,10 +105,13 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Notifications.cpp" />
     <ClCompile Include="src\ioctlPidCommand.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\SharedDefines.h" />
+    <ClInclude Include="src\Notifications.h" />
     <ClInclude Include="src\ioctlPidCommand.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
