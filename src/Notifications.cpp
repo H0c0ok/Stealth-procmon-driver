@@ -114,22 +114,50 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
     REG_NOTIFY_CLASS Operation = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
     switch (Operation) {
-    case RegNtPreCreateKeyEx: {
-        PREG_CREATE_KEY_INFORMATION Info = (PREG_CREATE_KEY_INFORMATION)Argument2;
-        LogToSharedBuffer(L"[REGISTRY] Create value: %wZ\n", Info->CompleteName);
-        break;
-    }
-    case RegNtPreSetValueKey: {
-        PREG_SET_VALUE_KEY_INFORMATION Info = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
-        LogToSharedBuffer(L"[REGISTRY] Set value: %wZ\n", Info->ValueName);
-        break;
-    }
-    case RegNtPreQueryValueKey: {
-        PREG_QUERY_VALUE_KEY_INFORMATION Info = (PREG_QUERY_VALUE_KEY_INFORMATION)Argument2;
-        LogToSharedBuffer(L"[REGISTRY] Get Value: %wZ\n", Info->ValueName);
-        break;
-    }
+        case RegNtPreCreateKeyEx: {
+            PREG_CREATE_KEY_INFORMATION Info = (PREG_CREATE_KEY_INFORMATION)Argument2;
+            PCUNICODE_STRING rootName = NULL;
 
+            if (Info->RootObject != NULL) {
+                CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->RootObject, NULL, &rootName, 0);
+            }
+
+            if (rootName && rootName->Length > 0) {
+                LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\\%wZ\n", rootName, Info->CompleteName);
+            }
+            else {
+                LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\n", Info->CompleteName);
+            }
+            break;
+        }
+        case RegNtPreSetValueKey: {
+            PREG_SET_VALUE_KEY_INFORMATION Info = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
+            PCUNICODE_STRING keyName = NULL;
+
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
+
+            if (keyName && keyName->Length > 0) {
+                LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ\n", keyName, Info->ValueName);
+            }
+            else {
+                LogToSharedBuffer(L"[REGISTRY] Set Value: <unknown>\\%wZ\n", Info->ValueName);
+            }
+            break;
+        }
+        case RegNtPreQueryValueKey: {
+            PREG_QUERY_VALUE_KEY_INFORMATION Info = (PREG_QUERY_VALUE_KEY_INFORMATION)Argument2;
+            PCUNICODE_STRING keyName = NULL;
+
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
+
+            if (keyName && keyName->Length > 0) {
+                LogToSharedBuffer(L"[REGISTRY] Get Value: %wZ\\%wZ\n", keyName, Info->ValueName);
+            }
+            else {
+                LogToSharedBuffer(L"[REGISTRY] Get Value: <unknown>\\%wZ\n", Info->ValueName);
+            }
+            break;
+        }
     }
     return STATUS_SUCCESS;
 }

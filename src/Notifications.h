@@ -7,6 +7,7 @@
 extern ULONG g_TrackedPIDs[MAX_TRACKED_PIDS];
 extern WCHAR g_TargetProcessName[256];
 extern KSPIN_LOCK g_PidLock;
+extern LARGE_INTEGER g_RegCookie;
 
 BOOLEAN isPidTracked(ULONG Pid);
 VOID AddTrackedPid(ULONG Pid);
