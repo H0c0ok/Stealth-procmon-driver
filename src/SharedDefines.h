@@ -18,3 +18,48 @@ typedef struct _SHARED_MEMORY_BUFFER {
     volatile ULONG ReadIndex;  // User-Mode читает отсюда
     MONITOR_EVENT Events[MAX_EVENTS];
 } SHARED_MEMORY_BUFFER, * PSHARED_MEMORY_BUFFER;
+
+/*
+typedef enum _EVENT_TYPE {
+    EProcessCreate,
+    EProcessExit,
+    EFilePreCreate,
+    EFilePostCreate,
+    EPreFileRead,
+    EPostFileRead,
+    EPreFileWrite,
+    EPostFileWrite,
+    ERegistryCreateValue,
+    ERegistrySetValue,
+    ERegistryGetValue,
+    EThreadCreate
+} EVENT_TYPE;
+
+typedef struct _MONITOR_EVENT {
+    LARGE_INTEGER TimeStamp;
+    ULONG ProcessId;
+    EVENT_TYPE Type;
+    union {
+        struct {
+            ULONG ParentPid;
+            WCHAR ImageName[128];
+            WCHAR CommandLine[128];
+        } Process;
+
+        // Данные для файлов
+        struct {
+            NTSTATUS Status;
+            ULONG_PTR Information;
+            WCHAR FilePath[256];
+        } File;
+        struct {
+            ULONG DataType;
+            ULONG DataSize;
+            ULONG DwordData;
+            WCHAR Path[128];
+            WCHAR ValueName[64];
+            WCHAR StringData[128];
+        } Registry;
+    } Data;
+} MONITOR_EVENT, * PMONITOR_EVENT;
+*/

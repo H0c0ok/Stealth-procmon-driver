@@ -61,7 +61,7 @@ VOID RemoveTrackedPid(ULONG Pid) {
 VOID ProcessNotifyCallbackEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
     ULONG currentPid = (ULONG)(ULONG_PTR)ProcessId;
-
+    
 
     if (CreateInfo == NULL) {
         if (isPidTracked(currentPid)) {
@@ -70,12 +70,18 @@ VOID ProcessNotifyCallbackEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOT
         }
         return;
     }
+
     ULONG parentPid = (ULONG)(ULONG_PTR)CreateInfo->ParentProcessId;
+    
+
     if (isPidTracked(parentPid)) {
         AddTrackedPid(currentPid);
+
         LogToSharedBuffer(L"[PROCESS] Child process %wZ (PID: %d) inherit tracking.\n", CreateInfo->ImageFileName, currentPid);
         if (CreateInfo->CommandLine != NULL) {
             LogToSharedBuffer(L"[PROCESS] launch arguments: %wZ\n", CreateInfo->CommandLine);
+            //ULONG lenght = min(CreateInfo->ImageFileName->Length, sizeof(processEvent.Data.Process.ImageName) - sizeof(WCHAR));
+            //RtlCopyMemory(processEvent.Data.Process.ImageName, CreateInfo->ImageFileName->Buffer, lenght)
         } else {
             LogToSharedBuffer(L"[PROCESS] launch arguments: None\n");
         }
@@ -114,50 +120,97 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
     REG_NOTIFY_CLASS Operation = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
     switch (Operation) {
-        case RegNtPreCreateKeyEx: {
-            PREG_CREATE_KEY_INFORMATION Info = (PREG_CREATE_KEY_INFORMATION)Argument2;
-            PCUNICODE_STRING rootName = NULL;
+    case RegNtPreCreateKeyEx: {
+        PREG_CREATE_KEY_INFORMATION Info = (PREG_CREATE_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING rootName = NULL;
 
-            if (Info->RootObject != NULL) {
-                CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->RootObject, NULL, &rootName, 0);
-            }
+        if (Info->RootObject != NULL) {
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->RootObject, NULL, &rootName, 0);
+        }
 
-            if (rootName && rootName->Length > 0) {
-                LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\\%wZ\n", rootName, Info->CompleteName);
+        if (rootName && rootName->Length > 0) {
+            LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\\%wZ\n", rootName, Info->CompleteName);
+        }
+        else {
+            LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\n", Info->CompleteName);
+        }
+        break;
+    }
+    case RegNtPreSetValueKey: {
+        PREG_SET_VALUE_KEY_INFORMATION Info = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
+
+        __try {
+            if (Info->Data != NULL && Info->DataSize > 0) {
+
+                // Parcing (DWORD)
+                if (Info->Type == REG_DWORD && Info->DataSize >= sizeof(ULONG)) {
+                    ULONG val = *(PULONG)Info->Data;
+                    LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ (DWORD: %u)\n", keyName, Info->ValueName, val);
+                }
+                // Parcing (String)
+                else if (Info->Type == REG_SZ || Info->Type == REG_EXPAND_SZ) {
+                    ULONG chars = Info->DataSize / sizeof(WCHAR);
+                    if (chars > 80) chars = 80;
+
+                    LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ (STRING: %.*ws)\n",
+                        keyName, Info->ValueName, chars, (PWCHAR)Info->Data);
+                }
+                else {
+                    LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ (Type: %d, Size: %d bytes)\n",
+                        keyName, Info->ValueName, Info->Type, Info->DataSize);
+                }
             }
             else {
-                LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\n", Info->CompleteName);
+                LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ (EMPTY DATA)\n", keyName, Info->ValueName);
             }
-            break;
         }
-        case RegNtPreSetValueKey: {
-            PREG_SET_VALUE_KEY_INFORMATION Info = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ <MEMORY ACCESS ERROR>\n", keyName, Info->ValueName);
+        }
+        break;
+    }
+    case RegNtPreQueryValueKey: {
+        PREG_QUERY_VALUE_KEY_INFORMATION Info = (PREG_QUERY_VALUE_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
+
+        LogToSharedBuffer(L"[REGISTRY] Wants to Get Value: %wZ\\%wZ\n", keyName, Info->ValueName);
+        break;
+    }
+    case RegNtPostQueryValueKey: {
+        PREG_POST_OPERATION_INFORMATION PostInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+
+        if (NT_SUCCESS(PostInfo->Status)) {
+
+            PREG_QUERY_VALUE_KEY_INFORMATION PreInfo = (PREG_QUERY_VALUE_KEY_INFORMATION)PostInfo->PreInformation;
             PCUNICODE_STRING keyName = NULL;
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, PostInfo->Object, NULL, &keyName, 0);
 
-            CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
+            if (PreInfo->KeyValueInformationClass == KeyValuePartialInformation && PreInfo->KeyValueInformation != NULL) {
+                PKEY_VALUE_PARTIAL_INFORMATION partialInfo = (PKEY_VALUE_PARTIAL_INFORMATION)PreInfo->KeyValueInformation;
 
-            if (keyName && keyName->Length > 0) {
-                LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ\n", keyName, Info->ValueName);
+                __try {
+                    if (partialInfo->Type == REG_DWORD && partialInfo->DataLength >= sizeof(ULONG)) {
+                        ULONG val = *(PULONG)partialInfo->Data;
+                        LogToSharedBuffer(L"[REGISTRY] Read SUCCESS: %wZ\\%wZ (DWORD: %u)\n", keyName, PreInfo->ValueName, val);
+                    }
+                    else if (partialInfo->Type == REG_SZ || partialInfo->Type == REG_EXPAND_SZ) {
+                        ULONG chars = partialInfo->DataLength / sizeof(WCHAR);
+                        if (chars > 80) chars = 80;
+                        LogToSharedBuffer(L"[REGISTRY] Read SUCCESS: %wZ\\%wZ (STRING: %.*ws)\n",
+                            keyName, PreInfo->ValueName, chars, (PWCHAR)partialInfo->Data);
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    LogToSharedBuffer(L"[REGISTRY] Read SUCCESS: %wZ\\%wZ <MEMORY ACCESS ERROR>\n", keyName, PreInfo->ValueName);
+                }
             }
-            else {
-                LogToSharedBuffer(L"[REGISTRY] Set Value: <unknown>\\%wZ\n", Info->ValueName);
-            }
-            break;
         }
-        case RegNtPreQueryValueKey: {
-            PREG_QUERY_VALUE_KEY_INFORMATION Info = (PREG_QUERY_VALUE_KEY_INFORMATION)Argument2;
-            PCUNICODE_STRING keyName = NULL;
+        break;
 
-            CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
-
-            if (keyName && keyName->Length > 0) {
-                LogToSharedBuffer(L"[REGISTRY] Get Value: %wZ\\%wZ\n", keyName, Info->ValueName);
-            }
-            else {
-                LogToSharedBuffer(L"[REGISTRY] Get Value: <unknown>\\%wZ\n", Info->ValueName);
-            }
-            break;
-        }
+    }
     }
     return STATUS_SUCCESS;
 }
@@ -211,6 +264,16 @@ FLT_PREOP_CALLBACK_STATUS PreFileOperation(PFLT_CALLBACK_DATA Data, PCFLT_RELATE
         DbgPrint("[PreFileOperation] Warning: paging isn't completed");
     }
 
+    if (Data->Iopb->MajorFunction == IRP_MJ_READ) {
+        if (!(Data->Iopb->IrpFlags & IRP_PAGING_IO)) {
+            PFLT_FILE_NAME_INFORMATION nameInfo;
+            if (NT_SUCCESS(FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &nameInfo))) {
+                LogToSharedBuffer(L"[FILE] Wants to Write: %wZ\n", &nameInfo->Name);
+                FltReleaseFileNameInformation(nameInfo);
+            }
+        }
+    }
+
     return FLT_PREOP_SUCCESS_WITH_CALLBACK;
 }
 
@@ -255,6 +318,14 @@ FLT_POSTOP_CALLBACK_STATUS PostFileOperation(PFLT_CALLBACK_DATA Data, PCFLT_RELA
         }
         else {
             LogToSharedBuffer(L"   -> [RESULT] Read FAILED! NTSTATUS: 0x%X\n", status);
+        }
+    } 
+    else if (Data->Iopb->MajorFunction == IRP_MJ_WRITE) {
+        if (NT_SUCCESS(status)) {
+            LogToSharedBuffer(L"   -> [RESULT] Write SUCCESS (%llu bytes written)\n", (ULONG64)information);
+        }
+        else {
+            LogToSharedBuffer(L"   -> [RESULT] Write FAILED! NTSTATUS: 0x%X\n", status);
         }
     }
     return FLT_POSTOP_FINISHED_PROCESSING;

@@ -3,6 +3,11 @@
 #include <fltkernel.h>
 #include "ioctlPidCommand.h"
 #include "Notifications.h"
+#include <ntstrsafe.h>
+
+
+#define SYMLINK_FILE_PATH L"\\??\\C:\\sysmon_link.txt"
+
 
 // Global context and variables
 PFLT_FILTER g_FilterHandle = NULL;
@@ -10,6 +15,8 @@ LARGE_INTEGER g_RegCookie;
 
 // Addning global variables for objects
 PDEVICE_OBJECT g_DeviceObject = NULL;
+WCHAR g_DevNameBuffer[128] = { 0 };
+WCHAR g_SymLinkBuffer[128] = { 0 };
 UNICODE_STRING devName;
 UNICODE_STRING symLink;
 
@@ -17,6 +24,7 @@ UNICODE_STRING symLink;
 const FLT_OPERATION_REGISTRATION Callbacks[] = {
     { IRP_MJ_CREATE, 0, PreFileOperation, PostFileOperation },
     { IRP_MJ_READ, 0, PreFileOperation, PostFileOperation},
+    { IRP_MJ_WRITE, 0, PreFileOperation, PostFileOperation},
     { IRP_MJ_OPERATION_END }
 };
 
@@ -25,29 +33,92 @@ const FLT_REGISTRATION FilterRegistration = {
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 };
 
-extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
-    UNREFERENCED_PARAMETER(RegistryPath);
-    
+
+NTSTATUS CreateRandomSymlinkDeviceLink(PDRIVER_OBJECT DriverObject) {
     NTSTATUS status;
+    LARGE_INTEGER sysTime;
+    KeQuerySystemTime(&sysTime);
+    ULONG seed = sysTime.LowPart;
+    ULONG randomPart1 = RtlRandomEx(&seed);
+    ULONG randomPart2 = RtlRandomEx(&seed);
 
-    KeInitializeSpinLock(&g_PidLock);
+    RtlStringCbPrintfW(g_DevNameBuffer, sizeof(g_DevNameBuffer), L"\\Device\\SysMon_%08X_%08X", randomPart1, randomPart2);
+    RtlStringCbPrintfW(g_SymLinkBuffer, sizeof(g_SymLinkBuffer), L"\\DosDevices\\SysMon_%08X_%08X", randomPart1, randomPart2);
 
-    // Initing internal device name and symbolic link for User-mode
-    RtlInitUnicodeString(&devName, L"\\Device\\SysMon_A8F9_B2C4");
-    RtlInitUnicodeString(&symLink, L"\\DosDevices\\SysMon_A8F9_B2C4");
+    RtlInitUnicodeString(&devName, g_DevNameBuffer);
+    RtlInitUnicodeString(&symLink, g_SymLinkBuffer);
 
-    // Creating device
     status = IoCreateDevice(DriverObject, 0, &devName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &g_DeviceObject);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[main] Failed to create device. Status: 0x%X\n", status);
+        DbgPrint("[-] Failed to create random device. Status: 0x%X\n", status);
         return status;
     }
 
-    // Creating symbolic link \\.\SysMon_A8F9_B2C4
     status = IoCreateSymbolicLink(&symLink, &devName);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[main] Failed to create symbolic link. Status: 0x%X\n", status);
+        DbgPrint("[-] Failed to create random symbolic link. Status: 0x%X\n", status);
         IoDeleteDevice(g_DeviceObject);
+        return status;
+    }
+
+    UNICODE_STRING filePath;
+    RtlInitUnicodeString(&filePath, SYMLINK_FILE_PATH);
+    OBJECT_ATTRIBUTES objAttr;
+    InitializeObjectAttributes(&objAttr, &filePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+    HANDLE hFile;
+    IO_STATUS_BLOCK ioStatusBlock;
+
+    // Creating or overwriting the file
+    status = ZwCreateFile(&hFile, GENERIC_WRITE, &objAttr, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
+        0, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+
+    if (NT_SUCCESS(status)) {
+        WCHAR userLinkBuffer[128];
+        RtlStringCbPrintfW(userLinkBuffer, sizeof(userLinkBuffer), L"\\\\.\\SysMon_%08X_%08X", randomPart1, randomPart2);
+
+        ULONG bytesToWrite = (ULONG)(wcslen(userLinkBuffer) * sizeof(WCHAR));
+        ZwWriteFile(hFile, NULL, NULL, NULL, &ioStatusBlock, userLinkBuffer, bytesToWrite, NULL, NULL);
+        ZwClose(hFile);
+        DbgPrint("[+] Symlink saved to C:\\sysmon_link.txt\n");
+    }
+    else {
+        DbgPrint("[-] Failed to write symlink file to C:\\. Status: 0x%X\n", status);
+        DbgPrint("[?] Current symlink: %wZ", &symLink);
+    }
+    return status;
+}
+
+extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
+    UNREFERENCED_PARAMETER(RegistryPath);
+    
+    NTSTATUS status = 0;
+
+    KeInitializeSpinLock(&g_PidLock);
+
+    
+
+    // Initing internal device name and symbolic link for User-mode
+    // RtlInitUnicodeString(&devName, L"\\Device\\SysMon_A8F9_B2C4");
+    // RtlInitUnicodeString(&symLink, L"\\DosDevices\\SysMon_A8F9_B2C4");
+
+    // Creating device
+    // status = IoCreateDevice(DriverObject, 0, &devName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &g_DeviceObject);
+    // if (!NT_SUCCESS(status)) {
+    //     DbgPrint("[main] Failed to create device. Status: 0x%X\n", status);
+    //     return status;
+    // }
+
+    // Creating symbolic link \\.\SysMon_A8F9_B2C4
+    // status = IoCreateSymbolicLink(&symLink, &devName);
+    // if (!NT_SUCCESS(status)) {
+    //    DbgPrint("[main] Failed to create symbolic link. Status: 0x%X\n", status);
+    //    IoDeleteDevice(g_DeviceObject);
+    //    return status;
+    // }
+
+    status = CreateRandomSymlinkDeviceLink(DriverObject);
+    if (!NT_SUCCESS(status)) {
         return status;
     }
 
