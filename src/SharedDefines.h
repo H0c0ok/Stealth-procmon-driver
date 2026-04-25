@@ -14,8 +14,8 @@ typedef struct _MONITOR_EVENT {
 } MONITOR_EVENT, * PMONITOR_EVENT;
 
 typedef struct _SHARED_MEMORY_BUFFER {
-    volatile ULONG WriteIndex; // Драйвер пишет сюда
-    volatile ULONG ReadIndex;  // User-Mode читает отсюда
+    volatile ULONG WriteIndex; // index for driver itself
+    volatile ULONG ReadIndex; // index for user-mode application
     MONITOR_EVENT Events[MAX_EVENTS];
 } SHARED_MEMORY_BUFFER, * PSHARED_MEMORY_BUFFER;
 

@@ -120,6 +120,27 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
     REG_NOTIFY_CLASS Operation = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
     switch (Operation) {
+
+    case RegNtPreQueryMultipleValueKey: {
+        // TODO
+        LogToSharedBuffer(L"[REGISTRY] Process wants to query multiply values: <values>");
+        break;
+    }
+    case RegNtPostQueryMultipleValueKey: {
+        // TODO
+        LogToSharedBuffer(L"[REGISTRY] Process queryed multiply values: <values>");
+        break;
+    }
+    case RegNtPreEnumerateKey: {
+        // TODO
+        LogToSharedBuffer(L"[REGISTRY] Process wants to enumerate keys: <value>");
+        break;
+    }
+    case RegNtPostEnumerateKey: {
+        // TODO
+        LogToSharedBuffer(L"[REGISTRY] Process enumerated keys: <value>");
+        break;
+    }
     case RegNtPreCreateKeyEx: {
         PREG_CREATE_KEY_INFORMATION Info = (PREG_CREATE_KEY_INFORMATION)Argument2;
         PCUNICODE_STRING rootName = NULL;
@@ -169,6 +190,10 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
         __except (EXCEPTION_EXECUTE_HANDLER) {
             LogToSharedBuffer(L"[REGISTRY] Set Value: %wZ\\%wZ <MEMORY ACCESS ERROR>\n", keyName, Info->ValueName);
         }
+        break;
+    }
+    case RegNtPostSetValueKey: {
+        // TODO
         break;
     }
     case RegNtPreQueryValueKey: {
