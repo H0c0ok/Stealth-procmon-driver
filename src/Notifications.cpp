@@ -1,5 +1,6 @@
 #include <ntifs.h>
 #include <fltkernel.h>
+#include <ntstrsafe.h>
 #include "Notifications.h"
 #include "ioctlPidCommand.h"
 
@@ -60,31 +61,61 @@ VOID RemoveTrackedPid(ULONG Pid) {
 
 VOID ProcessNotifyCallbackEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
+    MONITOR_EVENT processEvent = { 0 };
     ULONG currentPid = (ULONG)(ULONG_PTR)ProcessId;
-    
+    KeQuerySystemTime(&processEvent.TimeStamp);
 
     if (CreateInfo == NULL) {
         if (isPidTracked(currentPid)) {
             RemoveTrackedPid(currentPid);
-            LogToSharedBuffer(L"[PROCESS] Tracked process terminated, removed from list. PID: %d\n", currentPid);
+            // LogToSharedBuffer(L"[PROCESS] Tracked process terminated, removed from list. PID: %d\n", currentPid);
+            processEvent.ProcessId = currentPid;
+            processEvent.Type = EProcessExit;
+            
         }
+        WriteEventToBuffer(&processEvent);
         return;
     }
 
     ULONG parentPid = (ULONG)(ULONG_PTR)CreateInfo->ParentProcessId;
-    
+   
 
     if (isPidTracked(parentPid)) {
         AddTrackedPid(currentPid);
+        processEvent.ProcessId = currentPid;
+        processEvent.Data.Process.ParentPid = parentPid;
+        processEvent.Type = EProcessCreate;
+        processEvent.Data.Process.IsInherited = 1;
 
-        LogToSharedBuffer(L"[PROCESS] Child process %wZ (PID: %d) inherit tracking.\n", CreateInfo->ImageFileName, currentPid);
-        if (CreateInfo->CommandLine != NULL) {
-            LogToSharedBuffer(L"[PROCESS] launch arguments: %wZ\n", CreateInfo->CommandLine);
-            //ULONG lenght = min(CreateInfo->ImageFileName->Length, sizeof(processEvent.Data.Process.ImageName) - sizeof(WCHAR));
-            //RtlCopyMemory(processEvent.Data.Process.ImageName, CreateInfo->ImageFileName->Buffer, lenght)
+        // LogToSharedBuffer(L"[PROCESS] Child process %wZ (PID: %d) inherit tracking.\n", CreateInfo->ImageFileName, currentPid);
+        if (CreateInfo->ImageFileName != NULL) {
+            // LogToSharedBuffer(L"[PROCESS] launch arguments: %wZ\n", CreateInfo->CommandLine);
+            ULONG ImageNameLength = min(CreateInfo->ImageFileName->Length,
+                sizeof(processEvent.Data.Process.ImageName) - sizeof(WCHAR));
+
+            RtlCopyMemory(processEvent.Data.Process.ImageName,
+                CreateInfo->ImageFileName->Buffer, ImageNameLength);
+            processEvent.Data.Process.ImageName[ImageNameLength / sizeof(WCHAR)] = L'\0';
         } else {
-            LogToSharedBuffer(L"[PROCESS] launch arguments: None\n");
+            // LogToSharedBuffer(L"[PROCESS] launch arguments: None\n");
+            RtlStringCbCopyW(processEvent.Data.Process.ImageName,
+                sizeof(processEvent.Data.Process.ImageName), L"Unknown");
         }
+
+        if (CreateInfo->CommandLine != NULL && CreateInfo->CommandLine->Length > 0) {
+            ULONG commandLenght = min(CreateInfo->CommandLine->Length,
+                sizeof(processEvent.Data.Process.CommandLine));
+
+            RtlCopyMemory(processEvent.Data.Process.CommandLine,
+                CreateInfo->CommandLine->Buffer, commandLenght);
+            processEvent.Data.Process.CommandLine[commandLenght / sizeof(WCHAR)] = L'\0';
+        }
+        else {
+            RtlStringCbCopyW(processEvent.Data.Process.CommandLine,
+                sizeof(processEvent.Data.Process.CommandLine), L"None");
+        }
+
+        WriteEventToBuffer(&processEvent);
         return;
     }
 
@@ -94,16 +125,38 @@ VOID ProcessNotifyCallbackEx(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOT
 
         if (RtlSuffixUnicodeString(&targetNameU, CreateInfo->ImageFileName, TRUE)) {
             AddTrackedPid(currentPid);
-            LogToSharedBuffer(L"[PROCESS] Match: %wZ added to tracking list. PID: %d\n",
-                CreateInfo->ImageFileName, currentPid);
-            LogToSharedBuffer(L"[PROCESS] launch arguments: ");
-            if (CreateInfo->CommandLine != NULL) {
-                LogToSharedBuffer(L"%wZ\n", CreateInfo->CommandLine);
+            //LogToSharedBuffer(L"[PROCESS] Match: %wZ added to tracking list. PID: %d\n",
+            //    CreateInfo->ImageFileName, currentPid);
+            // LogToSharedBuffer(L"[PROCESS] launch arguments: ");
+
+            processEvent.ProcessId = currentPid;
+            processEvent.Data.Process.ParentPid = parentPid;
+            processEvent.Type = EProcessCreate;
+            processEvent.Data.Process.IsInherited = 0;
+
+
+            ULONG ImageNameLength = min(CreateInfo->ImageFileName->Length,
+                sizeof(processEvent.Data.Process.ImageName) - sizeof(WCHAR));
+
+            RtlCopyMemory(processEvent.Data.Process.ImageName,
+                CreateInfo->ImageFileName->Buffer, ImageNameLength);
+
+            if ((CreateInfo->CommandLine != NULL) && (CreateInfo->CommandLine->Length > 0)) {
+                // LogToSharedBuffer(L"%wZ\n", CreateInfo->CommandLine);
+                ULONG commandLenght = min(CreateInfo->CommandLine->Length,
+                    sizeof(processEvent.Data.Process.CommandLine) - sizeof(WCHAR));
+
+                RtlCopyMemory(processEvent.Data.Process.CommandLine,
+                    CreateInfo->CommandLine->Buffer, commandLenght);
+                processEvent.Data.Process.CommandLine[commandLenght / sizeof(WCHAR)] = L'\0';
             }
             else {
-                LogToSharedBuffer(L"None\n");
+                RtlStringCbCopyW(processEvent.Data.Process.CommandLine,
+                    sizeof(processEvent.Data.Process.CommandLine), L"None");
             }
         }
+        WriteEventToBuffer(&processEvent);
+        return;
     }
     return;
 }
@@ -117,44 +170,158 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
         return STATUS_SUCCESS;
     }
 
+    MONITOR_EVENT registryEvent = { 0 };
+    KeQuerySystemTime(&registryEvent.TimeStamp);
     REG_NOTIFY_CLASS Operation = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
     switch (Operation) {
 
     case RegNtPreQueryMultipleValueKey: {
-        // TODO
-        LogToSharedBuffer(L"[REGISTRY] Process wants to query multiply values: <values>");
+        PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION preInfo = (PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION)Argument2;
+        PUNICODE_STRING keyName = NULL;
+
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, preInfo->Object, NULL, &keyName, 0);
+
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+
+        registryEvent.Data.Registry.DataSize = preInfo->EntryCount;
+        registryEvent.Type = ERegistryPreQueryMultipleValueKey;
+        WriteEventToBuffer(&registryEvent);
+        //LogToSharedBuffer(L"[REGISTRY] Process wants to query multiply values: <values>");
         break;
     }
     case RegNtPostQueryMultipleValueKey: {
-        // TODO
-        LogToSharedBuffer(L"[REGISTRY] Process queryed multiply values: <values>");
+        
+        PREG_POST_OPERATION_INFORMATION PostInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+        PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION PreInfo = (PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION)PostInfo->PreInformation;
+
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, PostInfo->Object, NULL, &keyName, 0);
+
+        registryEvent.Type = ERegistryPostQueryMultipleValueKey;
+        registryEvent.Data.Registry.Status = PostInfo->Status;
+
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+
+        if (NT_SUCCESS(PostInfo->Status)) {
+            registryEvent.Data.Registry.DataSize = PreInfo->EntryCount;
+            RtlStringCbCopyW(registryEvent.Data.Registry.StringData,
+                sizeof(registryEvent.Data.Registry.StringData), L"<MULTIPLE VALUES READ>");
+        }
+        else {
+            registryEvent.Data.Registry.DataSize = 0;
+            RtlStringCbCopyW(registryEvent.Data.Registry.StringData,
+                sizeof(registryEvent.Data.Registry.StringData), L"<FAILED TO READ>");
+        }
+
+        WriteEventToBuffer(&registryEvent);
+
+        //LogToSharedBuffer(L"[REGISTRY] Process queryed multiply values: <values>");
         break;
     }
     case RegNtPreEnumerateKey: {
-        // TODO
-        LogToSharedBuffer(L"[REGISTRY] Process wants to enumerate keys: <value>");
+        PREG_ENUMERATE_KEY_INFORMATION Info = (PREG_ENUMERATE_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->Object, NULL, &keyName, 0);
+
+        registryEvent.Type = ERegistryPreEnumerateKey;
+
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+
+        // Info->Index shows, which folder by order enumerates process (0, 1, 2...)
+        registryEvent.Data.Registry.DwordData = Info->Index;
+
+        WriteEventToBuffer(&registryEvent);
+        // LogToSharedBuffer(L"[REGISTRY] Process wants to enumerate keys: <value>");
         break;
     }
     case RegNtPostEnumerateKey: {
-        // TODO
-        LogToSharedBuffer(L"[REGISTRY] Process enumerated keys: <value>");
+        PREG_POST_OPERATION_INFORMATION postInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+        PREG_ENUMERATE_KEY_INFORMATION preInfo = (PREG_ENUMERATE_KEY_INFORMATION)postInfo->PreInformation;
+
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, postInfo->Object, NULL, &keyName, 0);
+        registryEvent.Type = ERegistryPostEnumerateKey;
+        registryEvent.Data.Registry.Status = postInfo->Status;
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+        else {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path), L"Unkown");
+        }
+
+        registryEvent.Data.Registry.DwordData = preInfo->Index;
+
+        if (NT_SUCCESS(postInfo->Status)) {
+            RtlStringCbCopyW(registryEvent.Data.Registry.StringData, 
+                sizeof(registryEvent.Data.Registry.StringData), L"Enum sucess");
+        }
+        else {
+            RtlStringCbCopyW(registryEvent.Data.Registry.StringData,
+                sizeof(registryEvent.Data.Registry.StringData), L"Enum end/error");
+        }
+
+        WriteEventToBuffer(&registryEvent);
+        // LogToSharedBuffer(L"[REGISTRY] Process enumerated keys: <value>");
         break;
     }
     case RegNtPreCreateKeyEx: {
-        PREG_CREATE_KEY_INFORMATION Info = (PREG_CREATE_KEY_INFORMATION)Argument2;
+        PREG_PRE_CREATE_KEY_INFORMATION info = (PREG_PRE_CREATE_KEY_INFORMATION)Argument2;
         PCUNICODE_STRING rootName = NULL;
+        registryEvent.Type = ERegistryPreCreateKey;
 
-        if (Info->RootObject != NULL) {
-            CmCallbackGetKeyObjectIDEx(&g_RegCookie, Info->RootObject, NULL, &rootName, 0);
+
+        if (rootName && rootName->Length > 0) {
+            // LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\\%wZ\n", rootName, info->CompleteName);
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path), L"%wZ\\%wZ", rootName, info->CompleteName);
+        }
+        else {
+            // LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\n", info->CompleteName);
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ",
+                info->CompleteName);
+        }
+        WriteEventToBuffer(&registryEvent);
+        break;
+    }
+    case RegNtPostCreateKeyEx: {
+        PREG_POST_OPERATION_INFORMATION postInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+        PREG_CREATE_KEY_INFORMATION preInfo = (PREG_CREATE_KEY_INFORMATION)postInfo->PreInformation;
+        PCUNICODE_STRING rootName = NULL;
+        registryEvent.Type = ERegistryPostCreateKey;
+        registryEvent.Data.Registry.Status = postInfo->Status;
+
+        if (preInfo->RootObject != NULL) {
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, preInfo->RootObject, NULL, &rootName, 0);
         }
 
         if (rootName && rootName->Length > 0) {
-            LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\\%wZ\n", rootName, Info->CompleteName);
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ\\%wZ",
+                rootName,
+                preInfo->CompleteName);
         }
         else {
-            LogToSharedBuffer(L"[REGISTRY] Create Key: %wZ\n", Info->CompleteName);
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path,
+                sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ",
+                preInfo->CompleteName);
         }
+        WriteEventToBuffer(&registryEvent);
         break;
     }
     case RegNtPreSetValueKey: {
@@ -234,8 +401,9 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
             }
         }
         break;
-
     }
+    default:
+        // TODO
     }
     return STATUS_SUCCESS;
 }

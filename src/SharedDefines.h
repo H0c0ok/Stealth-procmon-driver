@@ -19,7 +19,7 @@ typedef struct _SHARED_MEMORY_BUFFER {
     MONITOR_EVENT Events[MAX_EVENTS];
 } SHARED_MEMORY_BUFFER, * PSHARED_MEMORY_BUFFER;
 
-/*
+
 typedef enum _EVENT_TYPE {
     EProcessCreate,
     EProcessExit,
@@ -29,10 +29,23 @@ typedef enum _EVENT_TYPE {
     EPostFileRead,
     EPreFileWrite,
     EPostFileWrite,
-    ERegistryCreateValue,
-    ERegistrySetValue,
-    ERegistryGetValue,
-    EThreadCreate
+    ERegistryPreCreateValue,
+    ERegistryPostCreateValue,
+    ERegistryPreSetValue,
+    ERegistryPostSetValue,
+    ERegistryPreGetValue,
+    ERegistryPostGetValue,
+    ERegistryPreEnumerateValue,
+    ERegistryPostEnumerateValue,
+    ERegistryPreEnumerateKey,
+    ERegistryPostEnumerateKey,
+    ERegistryPreQueryMultipleValueKey,
+    ERegistryPostQueryMultipleValueKey,
+    ERegistryPreCreateKey,
+    ERegistryPostCreateKey,
+    ERegistryUnkown,
+    EThreadCreate,
+    EThreadExit
 } EVENT_TYPE;
 
 typedef struct _MONITOR_EVENT {
@@ -42,6 +55,7 @@ typedef struct _MONITOR_EVENT {
     union {
         struct {
             ULONG ParentPid;
+            UCHAR IsInherited;
             WCHAR ImageName[128];
             WCHAR CommandLine[128];
         } Process;
@@ -53,6 +67,7 @@ typedef struct _MONITOR_EVENT {
             WCHAR FilePath[256];
         } File;
         struct {
+            NTSTATUS Status;
             ULONG DataType;
             ULONG DataSize;
             ULONG DwordData;
@@ -62,4 +77,4 @@ typedef struct _MONITOR_EVENT {
         } Registry;
     } Data;
 } MONITOR_EVENT, * PMONITOR_EVENT;
-*/
+

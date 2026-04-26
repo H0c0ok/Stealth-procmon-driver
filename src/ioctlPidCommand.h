@@ -17,6 +17,7 @@ extern KSPIN_LOCK g_EventLock;
 NTSTATUS InitializeSharedMemory();
 VOID FreeSharedMemory();
 VOID LogToSharedBuffer(PCWSTR Format, ...);
+VOID WriteEventToBuffer(MONITOR_EVENT*);
 
 NTSTATUS CreateCloseHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 NTSTATUS DeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp);

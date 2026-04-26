@@ -33,6 +33,11 @@ VOID FreeSharedMemory() {
     }
 }
 
+VOID WriteToSharedBuffer(MONITOR_EVENT* event) {
+    // TODO
+}
+
+
 VOID LogToSharedBuffer(PCWSTR Format, ...) {
     if (!g_SharedBuffer) return;
 
