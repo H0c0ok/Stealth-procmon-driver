@@ -25,10 +25,13 @@ typedef enum _EVENT_TYPE {
     EProcessExit,
     EFilePreCreate,
     EFilePostCreate,
-    EPreFileRead,
-    EPostFileRead,
-    EPreFileWrite,
-    EPostFileWrite,
+    EFilePreOpen,
+    EFilePostOpen,
+    EFilePreRead,
+    EFilePostRead,
+    EFilePreWrite,
+    EFilePostWrite,
+    EFileUnknown,
     ERegistryPreCreateValue,
     ERegistryPostCreateValue,
     ERegistryPreSetValue,
@@ -39,11 +42,15 @@ typedef enum _EVENT_TYPE {
     ERegistryPostEnumerateValue,
     ERegistryPreEnumerateKey,
     ERegistryPostEnumerateKey,
+    ERegistryPreQueryValueKey,
+    ERegistryPostQueryValueKey,
     ERegistryPreQueryMultipleValueKey,
     ERegistryPostQueryMultipleValueKey,
     ERegistryPreCreateKey,
     ERegistryPostCreateKey,
-    ERegistryUnkown,
+    ERegistryPreDeleteValue,
+    ERegistryPostDeleteValue,
+    ERegistryUnknown,
     EThreadCreate,
     EThreadExit
 } EVENT_TYPE;
@@ -75,6 +82,9 @@ typedef struct _MONITOR_EVENT {
             WCHAR ValueName[64];
             WCHAR StringData[128];
         } Registry;
+        struct {
+            ULONG ThreadId;
+        } Thread;
     } Data;
 } MONITOR_EVENT, * PMONITOR_EVENT;
 
