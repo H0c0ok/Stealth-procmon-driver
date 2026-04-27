@@ -33,34 +33,24 @@ VOID FreeSharedMemory() {
     }
 }
 
-VOID WriteToSharedBuffer(MONITOR_EVENT* event) {
-    // TODO
-}
-
-
-VOID LogToSharedBuffer(PCWSTR Format, ...) {
+VOID WriteEventToBuffer(MONITOR_EVENT* event) {
     if (!g_SharedBuffer) return;
-
-    WCHAR tempBuffer[MAX_EVENT_MESSAGE];
-    va_list args;
-    va_start(args, Format);
-    RtlStringCbVPrintfW(tempBuffer, sizeof(tempBuffer), Format, args);
-    va_end(args);
 
     KIRQL oldIrql;
     KeAcquireSpinLock(&g_EventLock, &oldIrql);
 
-    ULONG index = g_SharedBuffer->WriteIndex;
-    PMONITOR_EVENT pEvent = &g_SharedBuffer->Events[index];
+    ULONG nextWriteIndex = (g_SharedBuffer->WriteIndex + 1) % MAX_EVENTS;
 
-    KeQuerySystemTime(&pEvent->TimeStamp);
-    RtlCopyMemory(pEvent->Message, tempBuffer, sizeof(tempBuffer));
-
-    g_SharedBuffer->WriteIndex = (index + 1) % MAX_EVENTS;
+    if (nextWriteIndex == g_SharedBuffer->ReadIndex) {
+        g_SharedBuffer->DroppedEvents++;
+    }
+    else {
+        RtlCopyMemory(&g_SharedBuffer->Events[g_SharedBuffer->WriteIndex], event, sizeof(MONITOR_EVENT));
+        g_SharedBuffer->WriteIndex = nextWriteIndex;
+    }
     KeReleaseSpinLock(&g_EventLock, oldIrql);
+
 }
-
-
 
 // Standard handler to allow User-Mode to open a handle to our driver
 NTSTATUS CreateCloseHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
@@ -90,13 +80,11 @@ NTSTATUS DeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 
             if (pInputPid != NULL) {
                 AddTrackedPid(*pInputPid);
-                LogToSharedBuffer(L"[DeviceControlHandler] Target PID updated successfully to: %d\n", *pInputPid);
                 status = STATUS_SUCCESS;
                 bytesIO = sizeof(ULONG);
             }
         }
         else {
-            LogToSharedBuffer(L"[DeviceControlHandler] Invalid buffer size for IOCTL_SET_TARGET_PID\n");
             status = STATUS_INFO_LENGTH_MISMATCH;
         }
     }
@@ -115,14 +103,9 @@ NTSTATUS DeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
                 // Adding null-terminator to end of string
                 g_TargetProcessName[(sizeof(g_TargetProcessName) / sizeof(WCHAR)) - 1] = L'\0';
 
-                LogToSharedBuffer(L"[DeviceControlHandler] Target Process Name set to: %ws\n", g_TargetProcessName);
                 status = STATUS_SUCCESS;
                 bytesIO = nameLength;
-            } else {
-                LogToSharedBuffer(L"[DeviceControlHandler] Error: pInputName is null\n");
             }
-        } else {
-            LogToSharedBuffer(L"[DeviceControlHandler] Warning: nameLength is bigger than buffer\n");
         }
     }
     else if (controlCode == IOCTL_MAP_MEMORY) {
@@ -145,7 +128,6 @@ NTSTATUS DeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
                     *(PVOID*)Irp->AssociatedIrp.SystemBuffer = g_UserMappedAddress;
                     status = STATUS_SUCCESS;
                     bytesIO = sizeof(PVOID);
-                    LogToSharedBuffer(L"[IOCTL] Shared Memory Mapped at: %p\n", g_UserMappedAddress);
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER) {
                     IoFreeMdl(g_SharedMdl);
@@ -164,12 +146,10 @@ NTSTATUS DeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
             IoFreeMdl(g_SharedMdl);
             g_SharedMdl = NULL;
             g_UserMappedAddress = NULL;
-            LogToSharedBuffer(L"[DeviceControlHandler] Shared Memory Unmapped\n");
         }
         status = STATUS_SUCCESS;
     }
     else {
-        LogToSharedBuffer(L"[DeviceControlHandler] Error: Invalid buffer size for IOCTL_SET_TARGET_NAME\n");
         status = STATUS_INFO_LENGTH_MISMATCH;
     }
 

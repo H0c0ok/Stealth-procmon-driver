@@ -7,20 +7,7 @@
 #define MAX_EVENT_MESSAGE 256
 #define MAX_EVENTS 1024
 
-
-typedef struct _MONITOR_EVENT {
-    LARGE_INTEGER TimeStamp;
-    WCHAR Message[MAX_EVENT_MESSAGE];
-} MONITOR_EVENT, * PMONITOR_EVENT;
-
-typedef struct _SHARED_MEMORY_BUFFER {
-    volatile ULONG WriteIndex; // index for driver itself
-    volatile ULONG ReadIndex; // index for user-mode application
-    MONITOR_EVENT Events[MAX_EVENTS];
-} SHARED_MEMORY_BUFFER, * PSHARED_MEMORY_BUFFER;
-
-
-typedef enum _EVENT_TYPE {
+typedef enum _MONITOR_EVENT_TYPE {
     EProcessCreate,
     EProcessExit,
     EFilePreCreate,
@@ -53,12 +40,12 @@ typedef enum _EVENT_TYPE {
     ERegistryUnknown,
     EThreadCreate,
     EThreadExit
-} EVENT_TYPE;
+} MONITOR_EVENT_TYPE;
 
 typedef struct _MONITOR_EVENT {
     LARGE_INTEGER TimeStamp;
     ULONG ProcessId;
-    EVENT_TYPE Type;
+    MONITOR_EVENT_TYPE Type;
     union {
         struct {
             ULONG ParentPid;
@@ -67,12 +54,12 @@ typedef struct _MONITOR_EVENT {
             WCHAR CommandLine[128];
         } Process;
 
-        // Данные для файлов
         struct {
             NTSTATUS Status;
             ULONG_PTR Information;
             WCHAR FilePath[256];
         } File;
+
         struct {
             NTSTATUS Status;
             ULONG DataType;
@@ -82,9 +69,18 @@ typedef struct _MONITOR_EVENT {
             WCHAR ValueName[64];
             WCHAR StringData[128];
         } Registry;
+
         struct {
             ULONG ThreadId;
         } Thread;
+
     } Data;
 } MONITOR_EVENT, * PMONITOR_EVENT;
+
+typedef struct _SHARED_MEMORY_BUFFER {
+    volatile ULONG WriteIndex; // index for driver itself
+    volatile ULONG ReadIndex; // index for user-mode application
+    volatile ULONG DroppedEvents; // Counter for missed events
+    MONITOR_EVENT_TYPE Events[MAX_EVENTS];
+} SHARED_MEMORY_BUFFER, * PSHARED_MEMORY_BUFFER;
 

@@ -9,8 +9,6 @@ ULONG g_TrackedPIDCount = 0;
 KSPIN_LOCK g_PidLock;
 
 BOOLEAN isPidTracked(ULONG Pid) {
-
-    
     if (Pid == 0) return FALSE;
     
     KIRQL oldIrql;
@@ -197,7 +195,7 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 
     case RegNtPreQueryMultipleValueKey: {
         PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION preInfo = (PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION)Argument2;
-        PUNICODE_STRING keyName = NULL;
+        PCUNICODE_STRING keyName = NULL;
 
         CmCallbackGetKeyObjectIDEx(&g_RegCookie, preInfo->Object, NULL, &keyName, 0);
 

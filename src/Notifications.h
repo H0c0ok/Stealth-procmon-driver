@@ -1,6 +1,7 @@
 #pragma once
 #include <ntifs.h>
 #include <fltkernel.h>
+#include "SharedDefines.h"
 
 #define MAX_TRACKED_PIDS 64
 
