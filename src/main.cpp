@@ -89,34 +89,34 @@ NTSTATUS CreateRandomSymlinkDeviceLink(PDRIVER_OBJECT DriverObject) {
     return status;
 }
 
+VOID DriverUnload(PDRIVER_OBJECT DriverObject) {
+
+    PsRemoveCreateThreadNotifyRoutine(ThreadNotifyRoutine);
+    PsSetCreateProcessNotifyRoutineEx(ProcessNotifyCallbackEx, TRUE);
+
+    if (g_RegCookie.QuadPart != 0) {
+        CmUnRegisterCallback(g_RegCookie);
+    }
+
+    if (g_FilterHandle != NULL) {
+        FltUnregisterFilter(g_FilterHandle);
+    }
+
+    FreeSharedMemory();
+
+    IoDeleteSymbolicLink(&symLink);
+    if (DriverObject->DeviceObject != NULL) {
+        IoDeleteDevice(DriverObject->DeviceObject);
+    }
+    DbgPrint("[+] Monitor unloaded safely. [+]\n");
+}
+
 extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
     UNREFERENCED_PARAMETER(RegistryPath);
     
     NTSTATUS status = 0;
 
     KeInitializeSpinLock(&g_PidLock);
-
-    
-
-    // Initing internal device name and symbolic link for User-mode
-    // RtlInitUnicodeString(&devName, L"\\Device\\SysMon_A8F9_B2C4");
-    // RtlInitUnicodeString(&symLink, L"\\DosDevices\\SysMon_A8F9_B2C4");
-
-    // Creating device
-    // status = IoCreateDevice(DriverObject, 0, &devName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &g_DeviceObject);
-    // if (!NT_SUCCESS(status)) {
-    //     DbgPrint("[main] Failed to create device. Status: 0x%X\n", status);
-    //     return status;
-    // }
-
-    // Creating symbolic link \\.\SysMon_A8F9_B2C4
-    // status = IoCreateSymbolicLink(&symLink, &devName);
-    // if (!NT_SUCCESS(status)) {
-    //    DbgPrint("[main] Failed to create symbolic link. Status: 0x%X\n", status);
-    //    IoDeleteDevice(g_DeviceObject);
-    //    return status;
-    // }
-
     status = CreateRandomSymlinkDeviceLink(DriverObject);
     if (!NT_SUCCESS(status)) {
         return status;
@@ -125,18 +125,19 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING Reg
     DriverObject->MajorFunction[IRP_MJ_CREATE] = CreateCloseHandler;
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = CreateCloseHandler;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DeviceControlHandler;
+    DriverObject->MajorFunction[IRP_MJ_CLEANUP] = CreateCloseHandler;
 
     InitializeSharedMemory();
 
 
     // Setting notify for threads
     status = PsSetCreateThreadNotifyRoutine(ThreadNotifyRoutine);
-    if (!NT_SUCCESS(status)) DbgPrint("[main] Failed to set thread notify routine. [-]\n");
+    if (!NT_SUCCESS(status)) DbgPrint("[DriverEntry] Failed to set thread notify routine. [-]\n");
 
     // Setting notify for register
     UNICODE_STRING altitude = RTL_CONSTANT_STRING(L"385201"); // Setting unique height
     status = CmRegisterCallbackEx(RegistryCallback, &altitude, DriverObject, NULL, &g_RegCookie, NULL);
-    if (!NT_SUCCESS(status)) DbgPrint("[main] Failed to register registry callback.[-]\n");
+    if (!NT_SUCCESS(status)) DbgPrint("[DriverEntry] Failed to register registry callback.[-]\n");
 
     // Setting notify for files
     status = FltRegisterFilter(DriverObject, &FilterRegistration, &g_FilterHandle);
@@ -144,25 +145,16 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING Reg
         status = FltStartFiltering(g_FilterHandle);
     }
     else {
-        DbgPrint("[main] Failed to register minifilter. [-]\n");
+        DbgPrint("[DriverEntry] Failed to register minifilter. [-]\n");
     }
 
     status = PsSetCreateProcessNotifyRoutineEx(ProcessNotifyCallbackEx, FALSE);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[main] Failed to register process notify callback.\n");
+        DbgPrint("[DriverEntry] Failed to register process notify callback.\n");
     }
+
+    DriverObject->DriverUnload = DriverUnload;
 
     DbgPrint("[+] Custom pro*mon loaded. [+]\n");
     return STATUS_SUCCESS;
-}
-
-VOID DriverUnload(PDRIVER_OBJECT DriverObject) {
-    PsRemoveCreateThreadNotifyRoutine(ThreadNotifyRoutine);
-    PsSetCreateProcessNotifyRoutineEx(ProcessNotifyCallbackEx, TRUE);
-    CmUnRegisterCallback(g_RegCookie);
-    FltUnregisterFilter(g_FilterHandle);
-    IoDeleteSymbolicLink(&symLink);
-    IoDeleteDevice(DriverObject->DeviceObject);
-    FreeSharedMemory();
-    DbgPrint("[+] Monitor unloaded safely. [+]\n");
 }

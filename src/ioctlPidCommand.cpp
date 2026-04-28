@@ -55,6 +55,19 @@ VOID WriteEventToBuffer(MONITOR_EVENT* event) {
 // Standard handler to allow User-Mode to open a handle to our driver
 NTSTATUS CreateCloseHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     UNREFERENCED_PARAMETER(DeviceObject);
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+
+    if (stack->MajorFunction == IRP_MJ_CLEANUP || stack->MajorFunction == IRP_MJ_CLOSE) {
+        if (g_SharedMdl && g_UserMappedAddress) {
+            MmUnmapLockedPages(g_UserMappedAddress, g_SharedMdl);
+            IoFreeMdl(g_SharedMdl);
+
+            g_SharedMdl = NULL;
+            g_UserMappedAddress = NULL;
+            DbgPrint("[DRIVER] Memory unmapped due to process cleanup.\n");
+        }
+    }
+
     Irp->IoStatus.Status = STATUS_SUCCESS;
     Irp->IoStatus.Information = 0;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);

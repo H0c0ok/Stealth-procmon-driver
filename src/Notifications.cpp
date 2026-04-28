@@ -192,7 +192,119 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
     REG_NOTIFY_CLASS Operation = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
     switch (Operation) {
+    case RegNtPostKeyHandleClose:
+    case RegNtPreQueryKeySecurity:
+    case RegNtCallbackObjectContextCleanup:
+    case 29: // RegNtPostCallbackObjectContextCleanup
+        return STATUS_SUCCESS;
+    case RegNtPreOpenKeyEx: {
+        PREG_OPEN_KEY_INFORMATION info = (PREG_OPEN_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING rootName = NULL;
+        registryEvent.Type = ERegistryPreOpenKey;
 
+        if (info->RootObject != NULL) {
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, info->RootObject, NULL, &rootName, 0);
+        }
+
+        if (rootName && rootName->Length > 0) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ\\%wZ", rootName, info->CompleteName);
+        }
+        else {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ", info->CompleteName);
+        }
+
+        WriteEventToBuffer(&registryEvent);
+        if (rootName) CmCallbackReleaseKeyObjectIDEx(rootName);
+        break;
+    }
+    case RegNtPostOpenKey: {
+        PREG_POST_OPERATION_INFORMATION postInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+        PREG_OPEN_KEY_INFORMATION preInfo = (PREG_OPEN_KEY_INFORMATION)postInfo->PreInformation;
+        PCUNICODE_STRING rootName = NULL;
+        registryEvent.Type = ERegistryPostOpenKey;
+        registryEvent.Data.Registry.Status = postInfo->Status;
+
+        if (preInfo->RootObject != NULL) {
+            CmCallbackGetKeyObjectIDEx(&g_RegCookie, preInfo->RootObject, NULL, &rootName, 0);
+        }
+
+        if (rootName && rootName->Length > 0) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ\\%wZ", rootName, preInfo->CompleteName);
+        }
+        else {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path),
+                L"%wZ", preInfo->CompleteName);
+        }
+
+        WriteEventToBuffer(&registryEvent);
+        if (rootName) CmCallbackReleaseKeyObjectIDEx(rootName);
+        break;
+    }
+    case RegNtPreEnumerateValueKey: {
+        PREG_ENUMERATE_VALUE_KEY_INFORMATION info = (PREG_ENUMERATE_VALUE_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, info->Object, NULL, &keyName, 0);
+
+        registryEvent.Type = ERegistryPreEnumerateValue;
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+        registryEvent.Data.Registry.DwordData = info->Index;
+
+        WriteEventToBuffer(&registryEvent);
+        if (keyName) CmCallbackReleaseKeyObjectIDEx(keyName);
+        break;
+    }
+    case RegNtPreDeleteKey: {
+        PREG_DELETE_KEY_INFORMATION info = (PREG_DELETE_KEY_INFORMATION)Argument2;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, info->Object, NULL, &keyName, 0);
+
+        registryEvent.Type = ERegistryPreDeleteKey;
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+
+        WriteEventToBuffer(&registryEvent);
+        if (keyName) CmCallbackReleaseKeyObjectIDEx(keyName);
+        break;
+    }
+    case RegNtPostDeleteKey: {
+        PREG_POST_OPERATION_INFORMATION postInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, postInfo->Object, NULL, &keyName, 0);
+
+        registryEvent.Type = ERegistryPostDeleteKey;
+        registryEvent.Data.Registry.Status = postInfo->Status;
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+
+        WriteEventToBuffer(&registryEvent);
+        if (keyName) CmCallbackReleaseKeyObjectIDEx(keyName);
+        break;
+    }
+    case RegNtPostEnumerateValueKey: {
+        PREG_POST_OPERATION_INFORMATION postInfo = (PREG_POST_OPERATION_INFORMATION)Argument2;
+        PREG_ENUMERATE_VALUE_KEY_INFORMATION preInfo = (PREG_ENUMERATE_VALUE_KEY_INFORMATION)postInfo->PreInformation;
+        PCUNICODE_STRING keyName = NULL;
+        CmCallbackGetKeyObjectIDEx(&g_RegCookie, postInfo->Object, NULL, &keyName, 0);
+
+        registryEvent.Type = ERegistryPostEnumerateValue;
+        registryEvent.Data.Registry.Status = postInfo->Status;
+        registryEvent.Data.Registry.DwordData = preInfo->Index;
+
+        if (keyName) {
+            RtlStringCbPrintfW(registryEvent.Data.Registry.Path, sizeof(registryEvent.Data.Registry.Path), L"%wZ", keyName);
+        }
+
+        WriteEventToBuffer(&registryEvent);
+        if (keyName) CmCallbackReleaseKeyObjectIDEx(keyName);
+        break;
+    }
     case RegNtPreQueryMultipleValueKey: {
         PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION preInfo = (PREG_QUERY_MULTIPLE_VALUE_KEY_INFORMATION)Argument2;
         PCUNICODE_STRING keyName = NULL;
@@ -207,6 +319,9 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
         registryEvent.Data.Registry.DataSize = preInfo->EntryCount;
         registryEvent.Type = ERegistryPreQueryMultipleValueKey;
         WriteEventToBuffer(&registryEvent);
+        if (keyName) {
+            CmCallbackReleaseKeyObjectIDEx(keyName);
+        }
         //LogToSharedBuffer(L"[REGISTRY] Process wants to query multiply values: <values>");
         break;
     }
@@ -238,7 +353,9 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
         }
 
         WriteEventToBuffer(&registryEvent);
-
+        if (keyName) {
+            CmCallbackReleaseKeyObjectIDEx(keyName);
+        }
         //LogToSharedBuffer(L"[REGISTRY] Process queryed multiply values: <values>");
         break;
     }
@@ -258,6 +375,9 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
         registryEvent.Data.Registry.DwordData = Info->Index;
 
         WriteEventToBuffer(&registryEvent);
+        if (keyName) {
+            CmCallbackReleaseKeyObjectIDEx(keyName);
+        }
         // LogToSharedBuffer(L"[REGISTRY] Process wants to enumerate keys: <value>");
         break;
     }
@@ -628,12 +748,11 @@ NTSTATUS RegistryCallback(PVOID CallbackContext, PVOID Argument1, PVOID Argument
         }
         break;
     }
-
     default: {
         registryEvent.Type = ERegistryUnknown;
         registryEvent.Data.Registry.DwordData = (ULONG)Operation;
         RtlStringCbCopyW(registryEvent.Data.Registry.Path,
-            sizeof(registryEvent.Data.Registry.Path), L"Unhadnled operation");
+            sizeof(registryEvent.Data.Registry.Path), L"Unhandled operation");
         WriteEventToBuffer(&registryEvent);
         break;
     }
